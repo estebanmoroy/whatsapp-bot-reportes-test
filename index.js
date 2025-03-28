@@ -53,6 +53,7 @@ const reportSchema = new mongoose.Schema({
     fecha: { type: Date, default: Date.now },
     audioPath: String,
     transcripcion: String,
+    tipoReporte: { type: String, enum: ["audio", "texto"], default: "audio" },
     reporte: {
         avance: String,
         problemas: String,
@@ -134,6 +135,7 @@ client.on("message", async (message) => {
 
             // Si el mensaje tiene un audio adjunto
             if (message.hasMedia && message._data.mimetype && message._data.mimetype.startsWith("audio")) {
+                // Procesar audio como antes
                 // Obtener información del remitente
                 const sender = message.author || message.from;
                 const senderName = message._data.notifyName || "Contratista";
@@ -168,6 +170,7 @@ client.on("message", async (message) => {
                     proyecto: "Proyecto Principal", // También podría ser dinámico
                     audioPath: filePath,
                     transcripcion: transcripcion,
+                    tipoReporte: "audio",
                     reporte: reporteEstructurado,
                 });
 
@@ -179,26 +182,72 @@ client.on("message", async (message) => {
                 // Enviar confirmación con resumen del reporte
                 const resumen = `✅ *Tu reporte ha sido procesado:*
           
-                📊 *Avance*: ${
-                    reporteEstructurado.avance ? reporteEstructurado.avance.substring(0, 80) + "..." : "No especificado"
+  📊 *Avance*: ${reporteEstructurado.avance.substring(0, 80)}...
+  🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
+  👷 *Personal*: ${reporteEstructurado.personal}
+  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos.substring(0, 80)}...
+  
+  Tu reporte completo está disponible en el sistema.`;
+
+                await message.reply(resumen);
+            }
+            // NUEVA SECCIÓN: Procesar mensajes de texto como reportes
+            else if (message.body.toLowerCase().startsWith("!reporte")) {
+                const sender = message.author || message.from;
+                const senderName = message._data.notifyName || "Contratista";
+
+                // Extraer el contenido del reporte (todo excepto el comando !reporte)
+                const textoReporte = message.body.substring("!reporte".length).trim();
+
+                // Verificar que el reporte tenga contenido
+                if (textoReporte.length < 10) {
+                    await message.reply(
+                        "El reporte es demasiado corto. Por favor proporciona más detalles sobre el avance, problemas, personal, etc."
+                    );
+                    return;
                 }
-                🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
-                👷 *Personal*: ${reporteEstructurado.personal || "No especificado"}
-                📋 *Siguientes pasos*: ${
-                    reporteEstructurado.siguientesPasos
-                        ? reporteEstructurado.siguientesPasos.substring(0, 80) + "..."
-                        : "No especificado"
-                }
-                
-                Tu reporte completo está disponible en el sistema.`;
+
+                // Enviar confirmación
+                await message.reply("Recibimos tu reporte en texto. Procesando...");
+
+                // Procesar el texto para generar el reporte estructurado
+                const reporteEstructurado = await generarReporteEstructurado(textoReporte);
+
+                // Guardar en la base de datos
+                const reporte = new Report({
+                    contratista: {
+                        nombre: senderName,
+                        telefono: sender,
+                    },
+                    proyecto: "Proyecto Principal",
+                    transcripcion: textoReporte,
+                    tipoReporte: "texto",
+                    reporte: reporteEstructurado,
+                });
+
+                await reporte.save();
+
+                // Establecer cooldown después de procesar
+                cooldowns.set(sender, currentTime + COOLDOWN_TIME);
+
+                // Enviar confirmación con resumen del reporte
+                const resumen = `✅ *Tu reporte de texto ha sido procesado:*
+          
+  📊 *Avance*: ${reporteEstructurado.avance.substring(0, 80)}...
+  🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
+  👷 *Personal*: ${reporteEstructurado.personal}
+  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos.substring(0, 80)}...
+  
+  Tu reporte completo está disponible en el sistema.`;
 
                 await message.reply(resumen);
             }
             // Comandos de ayuda dentro del grupo
             else if (message.body.toLowerCase().includes("ayuda") || message.body === "?") {
-                // Responder con instrucciones de ayuda
+                // Responder con instrucciones de ayuda actualizadas para incluir reportes por texto
                 await message.reply(`*Instrucciones para enviar tu reporte diario:*
           
+  📢 *OPCIÓN 1: Reporte por Audio*
   1️⃣ Graba un mensaje de audio con tu reporte
   2️⃣ Incluye información sobre:
      - Avance del día
@@ -208,8 +257,12 @@ client.on("message", async (message) => {
      - Clima (si afecta el trabajo)
      - Incidentes de seguridad
      - Plan para mañana
-  
-  3️⃣ Envía el audio y espera la confirmación`);
+  3️⃣ Envía el audio y espera la confirmación
+
+  ✍️ *OPCIÓN 2: Reporte por Texto*
+  1️⃣ Escribe !reporte seguido de tu informe completo
+  2️⃣ Ejemplo: !reporte Hoy avanzamos un 30% en la cimentación. Tuvimos 8 trabajadores...
+  3️⃣ Incluye la misma información que en los reportes por audio`);
             }
         }
     } catch (error) {
@@ -239,7 +292,6 @@ async function transcribirAudio(audioPath) {
 }
 
 // Función para generar reporte estructurado
-// Modifica la función generarReporteEstructurado para imprimir la respuesta de ChatGPT
 async function generarReporteEstructurado(transcripcion) {
     try {
         const prompt = `
@@ -247,15 +299,21 @@ async function generarReporteEstructurado(transcripcion) {
     
     Reporte: ${transcripcion}
     
-    Extrae la siguiente información y preséntala en formato JSON:
+    Extrae la siguiente información y preséntala en EXACTAMENTE este formato JSON:
     
-    1. Avance: Resumen del progreso del trabajo
-    2. Problemas: Cualquier problema o retraso encontrado
-    3. Materiales: Materiales utilizados o requeridos
-    4. Personal: Número de trabajadores presentes
-    5. Clima: Condiciones climáticas que afectan el trabajo
-    6. Seguridad: Problemas o medidas de seguridad
-    7. SiguientesPasos: Plan para el próximo día
+    {
+      "avance": "Resumen del progreso del trabajo",
+      "problemas": "Cualquier problema o retraso encontrado",
+      "materiales": "Materiales utilizados o requeridos",
+      "personal": "Número de trabajadores presentes",
+      "clima": "Condiciones climáticas que afectan el trabajo",
+      "seguridad": "Problemas o medidas de seguridad",
+      "siguientesPasos": "Plan para el próximo día"
+    }
+    
+    Es MUY IMPORTANTE que uses EXACTAMENTE los mismos nombres de campo en minúsculas y que cada campo sea un string simple.
+    No uses estructuras anidadas ni arrays. Cada campo debe contener directamente la información como texto plano.
+    Si no encuentras información para algún campo, simplemente déjalo como string vacío.
     `;
 
         const response = await openai.chat.completions.create({
@@ -264,7 +322,7 @@ async function generarReporteEstructurado(transcripcion) {
                 {
                     role: "system",
                     content:
-                        "Eres un asistente especializado en analizar reportes de construcción y extraer información clave de forma estructurada.",
+                        "Eres un asistente especializado en analizar reportes de construcción y extraer información clave de forma estructurada. Debes seguir EXACTAMENTE el formato solicitado sin añadir estructuras adicionales.",
                 },
                 {
                     role: "user",
@@ -274,45 +332,69 @@ async function generarReporteEstructurado(transcripcion) {
             response_format: { type: "json_object" },
         });
 
-        // Imprimir la respuesta completa en la consola
         console.log("Respuesta de ChatGPT:", JSON.stringify(response, null, 2));
 
-        // También imprimir solo el contenido del mensaje para más claridad
-        console.log("Contenido del reporte estructurado:", response.choices[0].message.content);
+        const contenidoJSON = JSON.parse(response.choices[0].message.content);
+        console.log("Contenido del reporte estructurado:", JSON.stringify(contenidoJSON, null, 2));
 
-        // Parsear la respuesta a un objeto JSON
-        const reporteEstructurado = JSON.parse(response.choices[0].message.content);
+        // Asegurarse de que el JSON tenga la estructura correcta
+        const reporteFormateado = {
+            avance: extraerTextoPlano(contenidoJSON.avance) || "No especificado",
+            problemas: extraerTextoPlano(contenidoJSON.problemas) || "Ninguno reportado",
+            materiales: extraerTextoPlano(contenidoJSON.materiales) || "No especificado",
+            personal: extraerTextoPlano(contenidoJSON.personal) || "No especificado",
+            clima: extraerTextoPlano(contenidoJSON.clima) || "No especificado",
+            seguridad: extraerTextoPlano(contenidoJSON.seguridad) || "No especificado",
+            siguientesPasos: extraerTextoPlano(contenidoJSON.siguientesPasos) || "No especificado",
+        };
 
-        // Verificar si el reporte tiene la estructura esperada
-        console.log("Estructura del reporte procesado:", Object.keys(reporteEstructurado));
-
-        return reporteEstructurado;
+        return reporteFormateado;
     } catch (error) {
         console.error("Error al generar reporte estructurado:", error);
-
-        // Si hay un error de parsing JSON, imprimir el contenido que causó el problema
-        if (error instanceof SyntaxError && error.message.includes("JSON")) {
-            console.error("Contenido que causó el error de parsing:", response?.choices[0]?.message?.content);
-        }
-
-        // Devolver un objeto con estructura vacía para evitar errores
+        // En caso de error, devolver un reporte con valores por defecto
         return {
-            avance: "No se pudo procesar",
-            problemas: "",
-            materiales: "",
-            personal: "No especificado",
-            clima: "",
-            seguridad: "",
-            siguientesPasos: "No especificado",
+            avance: "Error al procesar el reporte",
+            problemas: "Error al procesar el reporte",
+            materiales: "Error al procesar el reporte",
+            personal: "Error al procesar el reporte",
+            clima: "Error al procesar el reporte",
+            seguridad: "Error al procesar el reporte",
+            siguientesPasos: "Error al procesar el reporte",
         };
     }
 }
 
-// Configurar dashboard web
-app.set("view engine", "ejs");
-app.use(express.static("public"));
+// Función auxiliar para extraer texto plano de posibles objetos complejos
+function extraerTextoPlano(valor) {
+    if (!valor) return "";
 
-// Ruta para ver reportes
+    // Si es un string, devolverlo directamente
+    if (typeof valor === "string") return valor;
+
+    // Si es un objeto o array, convertirlo a string
+    if (typeof valor === "object") {
+        // Intentar extraer valores de objetos anidados o arrays
+        if (Array.isArray(valor)) {
+            return valor.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join(", ");
+        } else {
+            // Si es un objeto con propiedades, intentar concatenar los valores
+            const valores = Object.values(valor)
+                .map((v) => (typeof v === "string" ? v : JSON.stringify(v)))
+                .filter((v) => v && v !== "{}");
+
+            if (valores.length > 0) {
+                return valores.join(". ");
+            } else {
+                return JSON.stringify(valor);
+            }
+        }
+    }
+
+    // Para cualquier otro tipo
+    return String(valor);
+}
+
+// Modificar el HTML para mostrar el tipo de reporte
 app.get("/reportes", async (req, res) => {
     try {
         const reportes = await Report.find().sort({ fecha: -1 });
@@ -329,6 +411,9 @@ app.get("/reportes", async (req, res) => {
         .reporte { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
         .seccion { margin: 10px 0; }
         .etiqueta { font-weight: bold; }
+        .tipo-reporte { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
+        .tipo-audio { background-color: #e6f7ff; color: #0066cc; }
+        .tipo-texto { background-color: #f6ffed; color: #52c41a; }
       </style>
     </head>
     <body>
@@ -338,7 +423,12 @@ app.get("/reportes", async (req, res) => {
         reportes.forEach((reporte) => {
             html += `
       <div class="reporte">
-        <h2>Contratista: ${reporte.contratista.nombre} (${reporte.contratista.telefono})</h2>
+        <h2>
+          Contratista: ${reporte.contratista.nombre} (${reporte.contratista.telefono})
+          <span class="tipo-reporte tipo-${reporte.tipoReporte || "audio"}">${
+                reporte.tipoReporte === "texto" ? "Texto" : "Audio"
+            }</span>
+        </h2>
         <p>Fecha: ${new Date(reporte.fecha).toLocaleString()}</p>
         
         <div class="seccion">

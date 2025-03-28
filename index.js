@@ -182,12 +182,13 @@ client.on("message", async (message) => {
                 // Enviar confirmación con resumen del reporte
                 const resumen = `✅ *Tu reporte ha sido procesado:*
           
-  📊 *Avance*: ${reporteEstructurado.avance.substring(0, 80)}...
-  🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
+  📊 *Avance*: ${reporteEstructurado.avance}
+  🚧 *Problemas*: ${reporteEstructurado.problemas}
+  🧰 *Materiales*: ${reporteEstructurado.materiales}
   👷 *Personal*: ${reporteEstructurado.personal}
-  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos.substring(0, 80)}...
-  
-  Tu reporte completo está disponible en el sistema.`;
+  🌦️ *Clima*: ${reporteEstructurado.clima}
+  🦺 *Seguridad*: ${reporteEstructurado.seguridad}
+  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos}`;
 
                 await message.reply(resumen);
             }
@@ -233,12 +234,13 @@ client.on("message", async (message) => {
                 // Enviar confirmación con resumen del reporte
                 const resumen = `✅ *Tu reporte de texto ha sido procesado:*
           
-  📊 *Avance*: ${reporteEstructurado.avance.substring(0, 80)}...
-  🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
+  📊 *Avance*: ${reporteEstructurado.avance}
+  🚧 *Problemas*: ${reporteEstructurado.problemas}
+  🧰 *Materiales*: ${reporteEstructurado.materiales}
   👷 *Personal*: ${reporteEstructurado.personal}
-  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos.substring(0, 80)}...
-  
-  Tu reporte completo está disponible en el sistema.`;
+  🌦️ *Clima*: ${reporteEstructurado.clima}
+  🦺 *Seguridad*: ${reporteEstructurado.seguridad}
+  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos}`;
 
                 await message.reply(resumen);
             }

@@ -179,12 +179,18 @@ client.on("message", async (message) => {
                 // Enviar confirmación con resumen del reporte
                 const resumen = `✅ *Tu reporte ha sido procesado:*
           
-  📊 *Avance*: ${reporteEstructurado.avance.substring(0, 80)}...
-  🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
-  👷 *Personal*: ${reporteEstructurado.personal}
-  📋 *Siguientes pasos*: ${reporteEstructurado.siguientesPasos.substring(0, 80)}...
-  
-  Tu reporte completo está disponible en el sistema.`;
+                📊 *Avance*: ${
+                    reporteEstructurado.avance ? reporteEstructurado.avance.substring(0, 80) + "..." : "No especificado"
+                }
+                🚧 *Problemas*: ${reporteEstructurado.problemas ? "✓" : "✗"}
+                👷 *Personal*: ${reporteEstructurado.personal || "No especificado"}
+                📋 *Siguientes pasos*: ${
+                    reporteEstructurado.siguientesPasos
+                        ? reporteEstructurado.siguientesPasos.substring(0, 80) + "..."
+                        : "No especificado"
+                }
+                
+                Tu reporte completo está disponible en el sistema.`;
 
                 await message.reply(resumen);
             }
@@ -233,6 +239,7 @@ async function transcribirAudio(audioPath) {
 }
 
 // Función para generar reporte estructurado
+// Modifica la función generarReporteEstructurado para imprimir la respuesta de ChatGPT
 async function generarReporteEstructurado(transcripcion) {
     try {
         const prompt = `
@@ -267,10 +274,37 @@ async function generarReporteEstructurado(transcripcion) {
             response_format: { type: "json_object" },
         });
 
-        return JSON.parse(response.choices[0].message.content);
+        // Imprimir la respuesta completa en la consola
+        console.log("Respuesta de ChatGPT:", JSON.stringify(response, null, 2));
+
+        // También imprimir solo el contenido del mensaje para más claridad
+        console.log("Contenido del reporte estructurado:", response.choices[0].message.content);
+
+        // Parsear la respuesta a un objeto JSON
+        const reporteEstructurado = JSON.parse(response.choices[0].message.content);
+
+        // Verificar si el reporte tiene la estructura esperada
+        console.log("Estructura del reporte procesado:", Object.keys(reporteEstructurado));
+
+        return reporteEstructurado;
     } catch (error) {
         console.error("Error al generar reporte estructurado:", error);
-        throw error;
+
+        // Si hay un error de parsing JSON, imprimir el contenido que causó el problema
+        if (error instanceof SyntaxError && error.message.includes("JSON")) {
+            console.error("Contenido que causó el error de parsing:", response?.choices[0]?.message?.content);
+        }
+
+        // Devolver un objeto con estructura vacía para evitar errores
+        return {
+            avance: "No se pudo procesar",
+            problemas: "",
+            materiales: "",
+            personal: "No especificado",
+            clima: "",
+            seguridad: "",
+            siguientesPasos: "No especificado",
+        };
     }
 }
 
